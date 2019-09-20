@@ -51,6 +51,7 @@ class LogStash::Codecs::Nmap < LogStash::Codecs::Base
     run_stats = hashify_struct(xml.run_stats.first)
     run_stats["finished"] = finished_info
 
+
     if @emit_scan_metadata
         yield LogStash::Event.new(base.merge({
           'id' => scan_id,
@@ -67,14 +68,17 @@ class LogStash::Codecs::Nmap < LogStash::Codecs::Base
       # This will be used for the later port/hop types
       host_base = hashify_host(host, xml).merge(base)
 
-
       # Pull out the detail
-      ports = host.ports.map {|p| hashify_port(p)}
+      # ports = host.ports.map {|p| hashify_port(p)}
+      ports = host.ports
       traceroute = hashify_traceroute(host.traceroute)
       scan_host_id = scan_id + "-h#{idx}"
 
       if @emit_ports && ports
-        ports.each.with_index do |port,idx|
+        host.each_port do |port_obj|
+        # ports.each.with_index do |port,idx|
+          port = hashify_port(port_obj)
+          # script = port.scripts
           yield LogStash::Event.new(host_base.merge(
             'type' => 'nmap_port',
             'port' => port,
@@ -99,6 +103,7 @@ class LogStash::Codecs::Nmap < LogStash::Codecs::Base
       end
 
       if @emit_hosts
+        ports = host.ports.map {|p| hashify_port(p)}
         yield LogStash::Event.new(host_base.merge(
           'type' => 'nmap_host',
           'ports' => ports,
@@ -230,10 +235,30 @@ class LogStash::Codecs::Nmap < LogStash::Codecs::Base
       'reason' => port.reason,
       'protocol' => port.protocol.to_s,
       'service' => hashify_service(port.service),
-      'state' => port.state.to_s
+      'state' => port.state.to_s,
+      'script' => hashify_script(port.scripts)
     }
   end
+  
+  def hashify_script(scripts)
+    return unless scripts
 
+    h = {}
+    scripts.each do |name,output|
+      output.each_line do |line| 
+        if line != "\n"
+          key, val = line.split(":")
+          key = key.strip
+          key = key.downcase.gsub(' ', '_')
+          val = val.strip
+          h[:"#{key}"] = val
+        end  
+      end
+    end
+    
+    h
+  end
+  
   def hashify_traceroute(traceroute)
     return unless traceroute
 
